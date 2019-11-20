@@ -2,7 +2,9 @@
 
 #include <SFML/Graphics.hpp>
 
+#include <algorithm>
 #include <iostream>
+#include <random>
 #include <vector>
 
 // let's make it simple, only integers
@@ -22,10 +24,28 @@ struct Pipe
     {
         auto pos = shape.getPosition();
         if ((pos.x < 0) || (pos.x + m_x > _x) || (pos.y < 0) || (pos.y + m_y > _y)) {
-            std::cout << "dead" << std::endl;
+            std::cout << "dead x {" << pos.x << ":" << pos.x + m_x << "/" << _x << "} y {" << pos.y << ":" << pos.y + m_y << "/" << _y << "}" << std::endl;
             return false;
         }
         return true;
+    }
+
+    auto get_top_left() const
+    {
+        return shape.getPosition();
+    }
+
+    auto get_bottom_right() const
+    {
+        auto pos = shape.getPosition();
+	pos.x += m_x;
+	pos.y += m_y;
+	return pos;
+    }
+
+    auto getGlobalBounds() const
+    {
+        return shape.getGlobalBounds();
     }
 
     uint32_t m_x = 0;
@@ -44,11 +64,17 @@ struct Fluffy
 
     bool is_alive() const
     {
-        return true;
+        return m_is_alive;
     }
 
     void jump() {
         m_velocity += 2;
+    }
+
+    template<typename T>
+    bool colide(T && object)
+    {
+        return shape.getGlobalBounds().intersects(object.getGlobalBounds());
     }
 
     void update()
@@ -65,17 +91,29 @@ struct Fluffy
     uint32_t m_size = 0;
     double m_velocity = 0;
     sf::CircleShape shape;
+    bool m_is_alive = true;
 };
+
+Pipe generate_pipe()
+{
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(0, _x);
+
+    auto t = dis(gen);
+    auto spawn_point = sf::Vector2f(_x - 24, 0);
+    Pipe pipe(20, t);
+    pipe.shape.setSize(sf::Vector2f(20, t));
+    pipe.shape.setPosition(spawn_point);
+    pipe.shape.setFillColor(sf::Color::Green);
+
+    return pipe;
+}
 
 int main()
 {
-    auto spawn_point = sf::Vector2f(_x - 24, _y / 2);
     sf::RenderWindow window(sf::VideoMode(_x, _y), WINDOW_TITLE);
     window.setFramerateLimit(50);
-    Pipe pipe(20, 100);
-    pipe.shape.setSize(sf::Vector2f(20, 100));
-    pipe.shape.setPosition(spawn_point);
-    pipe.shape.setFillColor(sf::Color::Green);
 
     Fluffy fluff(20, _y / 2, 20);
     fluff.shape.setFillColor(sf::Color(255, 192, 203));
@@ -94,6 +132,7 @@ int main()
 
 
     std::vector<Pipe> pipes;
+    auto pipe = generate_pipe();
 
     while (window.isOpen())
     {
@@ -117,8 +156,18 @@ int main()
                 fluff.jump();
             }
         }
+
+        for (const auto & p : pipes) {
+            //if(p.shape.x > fluff.shape.x + fluff.m_size) {
+            //    break;
+            //}
+            if (fluff.colide(p)) {
+		std::cout << "fluffy is dead :(" << std::endl;
+                break;
+            }
+        }
         if (!pipe.is_alive()) {
-            pipe.shape.setPosition(spawn_point);
+            pipe = generate_pipe();
         }
         pipe.update();
         fluff.update();
