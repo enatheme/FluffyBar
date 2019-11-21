@@ -15,42 +15,64 @@ struct Pipe
         , m_y(y)
     {}
 
+    /*
+    Pipe(const Pipe & p)
+    {
+        m_x = p.m_x;
+        m_y = p.m_y;
+        m_pipe_top = p.m_pipe_top;
+        m_pipe_bottom = p.m_pipe_bottom;
+    }
+
+    Pipe(Pipe && p)
+    {
+        m_x = p.m_x;
+        m_y = p.m_y;
+        m_pipe_top = std::move(p.m_pipe_top);
+        m_pipe_bottom = std::move(p.m_pipe_bottom);
+    }
+
+    Pipe & operator<<(const Pipe & p)
+    {
+        m_x = p.m_x;
+        m_y = p.m_y;
+        m_pipe_top = p.m_pipe_top;
+        m_pipe_bottom = p.m_pipe_bottom;
+    }*/
+
     void update()
     {
-        shape.move(sf::Vector2f(-1.f, 0.f));
+        m_pipe_top.move(sf::Vector2f(-1.f, 0.f));
+        m_pipe_bottom.move(sf::Vector2f(-1.f, 0.f));
     }
 
     bool is_alive() const
     {
-        auto pos = shape.getPosition();
-        if ((pos.x < 0) || (pos.x + m_x > _x) || (pos.y < 0) || (pos.y + m_y > _y)) {
-            std::cout << "dead x {" << pos.x << ":" << pos.x + m_x << "/" << _x << "} y {" << pos.y << ":" << pos.y + m_y << "/" << _y << "}" << std::endl;
+        auto pos = m_pipe_top.getPosition();
+        if (pos.x + m_x < 0) {
+            std::cout << "dead x {" << pos.x << ":" << pos.x + m_x << "} y {" << pos.y << ":" << pos.y + m_y << "}" << std::endl;
             return false;
         }
         return true;
     }
 
-    auto get_top_left() const
+    void display(sf::RenderWindow & w) const
     {
-        return shape.getPosition();
+        w.draw(m_pipe_top);
+        w.draw(m_pipe_bottom);
     }
 
-    auto get_bottom_right() const
+    template<typename T>
+    bool collide(const T & object) const
     {
-        auto pos = shape.getPosition();
-	pos.x += m_x;
-	pos.y += m_y;
-	return pos;
-    }
-
-    auto getGlobalBounds() const
-    {
-        return shape.getGlobalBounds();
+        return (m_pipe_top.getGlobalBounds().intersects(object.getGlobalBounds())
+                || m_pipe_bottom.getGlobalBounds().intersects(object.getGlobalBounds()));
     }
 
     uint32_t m_x = 0;
     uint32_t m_y = 0;
-    sf::RectangleShape shape;
+    sf::RectangleShape m_pipe_top;
+    sf::RectangleShape m_pipe_bottom;
 };
 
 struct Fluffy
@@ -79,11 +101,14 @@ struct Fluffy
 
     void update()
     {
-        if (m_velocity == -2) {
-            return;
+        if (m_velocity != -2) {
+            m_velocity -= 0.1;
         }
-        m_velocity -= 0.1;
         shape.move(sf::Vector2f(0.f, -m_velocity));
+        auto y = shape.getPosition().y;
+        if ((y < 0) ||  (y > _y)) {
+            m_is_alive = false;
+        }
     }
 
     double m_x = 0;
@@ -96,18 +121,24 @@ struct Fluffy
 
 Pipe generate_pipe()
 {
+    static auto spawn_point = sf::Vector2f(_x - 24, 0);
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dis(0, _x);
+    std::uniform_int_distribution<> dis(0, _x - FENCE_SIZE - 10);
 
-    auto t = dis(gen);
-    auto spawn_point = sf::Vector2f(_x - 24, 0);
+    int t = dis(gen);
+
     Pipe pipe(20, t);
-    pipe.shape.setSize(sf::Vector2f(20, t));
-    pipe.shape.setPosition(spawn_point);
-    pipe.shape.setFillColor(sf::Color::Green);
 
-    return pipe;
+    pipe.m_pipe_top.setSize(sf::Vector2f(20, t));
+    pipe.m_pipe_top.setPosition(spawn_point);
+    pipe.m_pipe_top.setFillColor(sf::Color::Green);
+
+    pipe.m_pipe_bottom.setSize(sf::Vector2f(20, _y  - t - FENCE_SIZE));
+    pipe.m_pipe_bottom.setPosition({spawn_point.x, t + FENCE_SIZE});
+    pipe.m_pipe_bottom.setFillColor(sf::Color::Red);
+
+    return std::move(pipe);
 }
 
 int main()
@@ -132,7 +163,8 @@ int main()
 
 
     std::vector<Pipe> pipes;
-    auto pipe = generate_pipe();
+    pipes.emplace_back(std::move(generate_pipe()));
+    auto counter = 1;
 
     while (window.isOpen())
     {
@@ -143,37 +175,44 @@ int main()
                 window.close();
             }
 
-            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Left)) {
-                pipe.shape.move(sf::Vector2f(-10.f, 0.f));
-            } else if (sf::Keyboard::isKeyPressed(sf::Keyboard::Right)) {
-                pipe.shape.move(sf::Vector2f(10.f, 0.f));
-            } else if (sf::Keyboard::isKeyPressed(sf::Keyboard::Up)) {
-                pipe.shape.move(sf::Vector2f(0.f, -10.f));
-            } else if (sf::Keyboard::isKeyPressed(sf::Keyboard::Down)) {
-                pipe.shape.move(sf::Vector2f(0.f, 10.f));
-            }
-            else if (sf::Keyboard::isKeyPressed(sf::Keyboard::Space)) {
+            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Space)) {
                 fluff.jump();
             }
         }
 
-        for (const auto & p : pipes) {
+        for (auto & p : pipes) {
             //if(p.shape.x > fluff.shape.x + fluff.m_size) {
             //    break;
             //}
-            if (fluff.colide(p)) {
-		std::cout << "fluffy is dead :(" << std::endl;
-                break;
+            //if (fluff.colide(p)) {
+            p.update();
+            if (p.collide(fluff.shape)) {
+                std::cout << "fluffy is dead :(" << std::endl;
             }
         }
-        if (!pipe.is_alive()) {
+        pipes.erase(
+            std::remove_if(pipes.begin(), pipes.end(), [](auto p) {
+                return !p.is_alive();
+            })
+        , pipes.end());
+        /*if (!pipe.is_alive()) {
             pipe = generate_pipe();
+        }*/
+        if (!fluff.is_alive()) {
         }
-        pipe.update();
+        if (counter % 90 == 0) {
+            pipes.emplace_back(std::move(generate_pipe()));
+            counter = 0;
+        }
+        counter++;
         fluff.update();
 
         window.clear();
-        window.draw(pipe.shape);
+        std::for_each(pipes.begin(), pipes.end(), [&](const auto & p) {
+            p.display(window);
+        });
+        //pipe.display(window);
+        //window.draw(pipe.shape);
         window.draw(fluff.shape);
         window.display();
     }
